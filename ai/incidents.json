@@ -1,0 +1,30 @@
+[
+    {
+        "incident_id": 101,
+        "message": "Your SBI KYC has expired. Verify immediately.",
+        "scam_type": "KYC Scam",
+        "upi": "abc@upi",
+        "url": "fakebank.com"
+    },
+    {
+        "incident_id": 117,
+        "message": "Your bank account will be blocked unless you complete KYC verification.",
+        "scam_type": "KYC Scam",
+        "upi": "abc@upi",
+        "url": "anotherfakebank.com"
+    },
+    {
+        "incident_id": 139,
+        "message": "Urgent! Update your banking KYC to avoid account suspension.",
+        "scam_type": "KYC Scam",
+        "upi": "xyz@upi",
+        "url": "fakebank.com"
+    },
+    {
+        "incident_id": 150,
+        "message": "Congratulations! You have won a lottery prize of ₹50000. Pay the processing fee.",
+        "scam_type": "Lottery Scam",
+        "upi": "lottery@upi",
+        "url": "prize-example.com"
+    }
+]
