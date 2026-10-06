@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.db.session import get_db
+from app.config import get_settings
 from app.main import app
 from app.models import Base, Campaign, Entity, Incident
 from app.schemas import FraudAnalysis
@@ -25,15 +26,29 @@ def db_engine() -> Generator:
 
 
 @pytest.fixture
-def client(db_engine) -> Generator[TestClient, None, None]:
+def client(db_engine, monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+    monkeypatch.setenv("JWT_SECRET_KEY", "campaign-tests-jwt-secret-32-bytes-long")
+    get_settings.cache_clear()
+
     def override_get_db() -> Generator[Session, None, None]:
         with Session(db_engine) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
+        registration = test_client.post(
+            "/api/v1/auth/register",
+            json={
+                "name": "Demo Investigator",
+                "email": "investigator@example.com",
+                "password": "demo-password",
+                "role": "INVESTIGATOR",
+            },
+        )
+        test_client.headers["Authorization"] = f"Bearer {registration.json()['access_token']}"
         yield test_client
     app.dependency_overrides.clear()
+    get_settings.cache_clear()
 
 
 def _seed_incident_with_entity(

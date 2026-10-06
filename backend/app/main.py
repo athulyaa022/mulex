@@ -1,10 +1,13 @@
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from app.api.auth_routes import router as auth_router
 from app.api.routes import router
 from app.services.person2_ai_provider import Person2AIServiceError
+from app.services.graph_service import GraphProviderError
+from app.services.llm_service import LLMServiceError
 
 app = FastAPI(title="MULEX Backend")
 app.include_router(router)
@@ -22,6 +25,33 @@ async def person2_ai_error_handler(request, exc: Person2AIServiceError) -> JSONR
             }
         },
     )
+
+
+@app.exception_handler(GraphProviderError)
+async def graph_provider_error_handler(request, exc: GraphProviderError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"error": {"code": "GRAPH_SERVICE_UNAVAILABLE", "message": str(exc)}},
+    )
+
+
+@app.exception_handler(LLMServiceError)
+async def llm_service_error_handler(request, exc: LLMServiceError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"error": {"code": "LLM_SERVICE_UNAVAILABLE", "message": str(exc)}},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_error_handler(request, exc: HTTPException) -> JSONResponse:
+    detail = exc.detail
+    error = (
+        detail
+        if isinstance(detail, dict) and "code" in detail and "message" in detail
+        else {"code": "HTTP_ERROR", "message": str(detail)}
+    )
+    return JSONResponse(status_code=exc.status_code, content={"error": error}, headers=exc.headers)
 
 
 @app.exception_handler(RequestValidationError)

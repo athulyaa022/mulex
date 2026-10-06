@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.db.session import get_db
+from app.config import get_settings
 from app.main import app
 from app.models import Base, Incident
 from app.schemas import FraudAnalysis
@@ -15,7 +16,9 @@ from app.services.mock_ai_service import MockAIService
 
 
 @pytest.fixture
-def client() -> Generator[TestClient, None, None]:
+def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+    monkeypatch.setenv("JWT_SECRET_KEY", "analyze-tests-jwt-secret-32-bytes-long")
+    get_settings.cache_clear()
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -29,9 +32,20 @@ def client() -> Generator[TestClient, None, None]:
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
+        registration = test_client.post(
+            "/api/v1/auth/register",
+            json={
+                "name": "Demo Investigator",
+                "email": "incident-reader@example.com",
+                "password": "demo-password",
+                "role": "INVESTIGATOR",
+            },
+        )
+        test_client.headers["Authorization"] = f"Bearer {registration.json()['access_token']}"
         yield test_client
     app.dependency_overrides.clear()
     engine.dispose()
+    get_settings.cache_clear()
 
 
 def test_valid_analysis_returns_contract_response(client: TestClient) -> None:
@@ -52,6 +66,9 @@ def test_valid_analysis_returns_contract_response(client: TestClient) -> None:
         "indicators",
         "related_incidents",
         "campaign_id",
+        "risk_breakdown",
+        "ml_signal",
+        "network_signal",
     }
     assert payload["incident_id"].startswith("INC-")
     assert payload["scam_type"] == "BANK_IMPERSONATION"
@@ -67,14 +84,16 @@ def test_kyc_text_uses_documented_mock_analysis(client: TestClient) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["incident_id"].startswith("INC-")
-    assert payload["risk_score"] == 87
-    assert payload["risk_level"] == "HIGH"
+    assert payload["risk_score"] == 55
+    assert payload["risk_level"] == "MEDIUM"
     assert payload["scam_type"] == "KYC_SCAM"
     assert payload["confidence"] == 0.92
     assert payload["entities"] == []
     assert payload["indicators"] == []
     assert payload["related_incidents"] == []
     assert payload["campaign_id"] is None
+    assert payload["ml_signal"] == 0.87
+    assert "llm_signal" not in payload["risk_breakdown"]
 
 
 def test_upi_text_is_classified_as_upi_scam(client: TestClient) -> None:
@@ -94,8 +113,8 @@ def test_bank_text_is_classified_as_bank_impersonation(client: TestClient) -> No
     )
 
     assert response.status_code == 200
-    assert response.json()["risk_score"] == 82
-    assert response.json()["risk_level"] == "HIGH"
+    assert response.json()["risk_score"] == 52
+    assert response.json()["risk_level"] == "MEDIUM"
     assert response.json()["scam_type"] == "BANK_IMPERSONATION"
     assert response.json()["confidence"] == 0.88
 
@@ -141,7 +160,7 @@ def test_analysis_calls_configured_ai_service_through_facade(
 
     assert response.status_code == 200
     assert provider.received_text == text
-    assert response.json()["risk_score"] == 63
+    assert response.json()["risk_score"] == 40
     assert response.json()["indicators"] == ["provider-test"]
 
 
@@ -188,8 +207,8 @@ def test_analysis_incident_is_persisted(client: TestClient) -> None:
     assert incidents_response.json()["incidents"] == [
         {
             "incident_id": incident_id,
-            "risk_score": 87,
-            "risk_level": "HIGH",
+            "risk_score": 55,
+            "risk_level": "MEDIUM",
             "scam_type": "KYC_SCAM",
         }
     ]

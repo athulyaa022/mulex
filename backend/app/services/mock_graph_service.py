@@ -1,5 +1,5 @@
 from app.models import Campaign, Incident
-from app.schemas import NetworkData, NetworkEdge, NetworkNode
+from app.schemas import CampaignGraphIntelligence, NetworkData, NetworkEdge, NetworkNode
 from app.services.graph_service_interface import GraphProvider
 
 
@@ -84,6 +84,58 @@ class MockGraphProvider(GraphProvider):
             edges=edges,
             risk_score=campaign.risk_score,
             evidence=evidence,
+            risk_level="HIGH" if campaign.risk_score >= 70 else "MEDIUM" if campaign.risk_score >= 40 else "LOW",
+            statistics={
+                "incoming_transactions": 0,
+                "outgoing_transactions": 0,
+                "unique_senders": 0,
+                "unique_receivers": 0,
+                "incoming_amount": 0.0,
+                "outgoing_amount": 0.0,
+                "rapid_activity": False,
+                "rapid_matches": 0,
+                "fastest_pass_through_minutes": None,
+                "connected_accounts": 3,
+            },
+        )
+
+    def get_campaign_intelligence(
+        self, campaign: Campaign
+    ) -> CampaignGraphIntelligence:
+        shared_entity_count = len(_shared_entities(campaign.incidents))
+        entities = [entity for incident in campaign.incidents for entity in incident.entities]
+        severity = (
+            "CRITICAL" if campaign.risk_score >= 90 else
+            "HIGH" if campaign.risk_score >= 70 else
+            "MEDIUM" if campaign.risk_score >= 40 else "LOW"
+        )
+        return CampaignGraphIntelligence(
+            campaign_id=campaign.campaign_id,
+            campaign_name=campaign.name,
+            scam_type=campaign.scam_type,
+            incident_count=len(campaign.incidents),
+            account_count=3 if campaign.incidents else 0,
+            url_count=sum(entity.entity_type == "URL" for entity in entities),
+            phone_count=sum(entity.entity_type == "PHONE" for entity in entities),
+            upi_count=sum(entity.entity_type == "UPI" for entity in entities),
+            severity_breakdown={severity: len(campaign.incidents)},
+            risk_score=campaign.risk_score,
+            risk_level="HIGH" if campaign.risk_score >= 70 else "MEDIUM" if campaign.risk_score >= 40 else "LOW",
+            evidence=[
+                f"{len(campaign.incidents)} application incident(s) linked.",
+                f"{shared_entity_count} shared identifier(s) found in application data.",
+            ],
+            statistics={
+                "incoming_transactions": 0,
+                "outgoing_transactions": 0,
+                "unique_senders": 0,
+                "unique_receivers": 0,
+                "incoming_amount": 0.0,
+                "outgoing_amount": 0.0,
+                "rapid_activity": False,
+                "rapid_matches": 0,
+                "fastest_pass_through_minutes": None,
+            },
         )
 
 

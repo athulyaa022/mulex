@@ -131,6 +131,35 @@ Graph service must provide:
 
 The frontend only consumes this structure.
 
+Backend integration architecture:
+
+```text
+Frontend
+    ↓
+FastAPI
+    ↓
+Person 2 AI provider
+    ↓
+Risk engine  ← optional configured LLM contextual signal
+    ↓
+PostgreSQL campaign service (application campaign source of truth)
+    ↓
+Person 4 graph provider
+    ↓
+Neo4j
+    ↓
+Investigator report service
+```
+
+PostgreSQL stores application data; Neo4j supplies graph/network intelligence.
+Person 2 AI performs fraud analysis. An optional LLM contributes a separate,
+structured contextual signal and is disabled unless configured. The risk engine
+fuses available signals; Person 2's risk score normalized to 0..1 is an AI risk
+signal, not a calibrated probability. Investigator reports are demo intelligence
+based on synthetic data only. Campaign/network and investigator-report endpoints
+require an authenticated `INVESTIGATOR` role; this role does not represent
+government or law-enforcement authorization.
+
 ---
 
 Change Management

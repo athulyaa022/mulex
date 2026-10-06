@@ -11,6 +11,7 @@ from app.schemas import (
     IncidentDetail,
     IncidentList,
     IncidentSummary,
+    InvestigatorReport,
     NetworkData,
     ReportCreate,
     ReportSubmitted,
@@ -18,7 +19,9 @@ from app.schemas import (
 from app.services.analysis_service import analyze_and_persist
 from app.services.campaign_service import get_campaign, list_campaigns
 from app.services.graph_service import get_network
+from app.services.investigator_report_service import build_investigator_report
 from app.services.report_service import create_report, get_incident, list_incidents
+from app.security import require_investigator
 
 router = APIRouter(prefix="/api/v1")
 
@@ -27,19 +30,22 @@ router = APIRouter(prefix="/api/v1")
 def analyze_text(
     request: AnalyzeRequest, session: Session = Depends(get_db)
 ) -> AnalyzeResponse:
-    incident, analysis, campaign_id, related_incidents = analyze_and_persist(
+    incident, analysis, campaign_id, related_incidents, fusion = analyze_and_persist(
         session, request.text
     )
     return AnalyzeResponse(
         incident_id=incident.incident_id,
-        risk_score=analysis.risk_score,
-        risk_level=analysis.risk_level,
+        risk_score=fusion.risk_score,
+        risk_level=fusion.risk_level,
         scam_type=analysis.scam_type,
         confidence=analysis.confidence,
         entities=analysis.entities,
         indicators=analysis.indicators,
         related_incidents=related_incidents,
         campaign_id=campaign_id,
+        risk_breakdown=fusion.breakdown,
+        ml_signal=fusion.ml_signal,
+        network_signal=fusion.network_signal,
     )
 
 
@@ -54,14 +60,19 @@ def submit_report(report_data: ReportCreate, session: Session = Depends(get_db))
 
 
 @router.get("/incidents", response_model=IncidentList)
-def get_incidents(session: Session = Depends(get_db)) -> IncidentList:
+def get_incidents(
+    session: Session = Depends(get_db),
+    _investigator=Depends(require_investigator),
+) -> IncidentList:
     incidents = list_incidents(session)
     return IncidentList(incidents=[IncidentSummary.model_validate(item) for item in incidents])
 
 
 @router.get("/incidents/{incident_id}", response_model=IncidentDetail)
 def get_incident_by_id(
-    incident_id: str, session: Session = Depends(get_db)
+    incident_id: str,
+    session: Session = Depends(get_db),
+    _investigator=Depends(require_investigator),
 ) -> IncidentDetail:
     incident = get_incident(session, incident_id)
     if incident is None:
@@ -73,13 +84,18 @@ def get_incident_by_id(
 
 
 @router.get("/campaigns", response_model=CampaignList)
-def get_campaigns(session: Session = Depends(get_db)) -> CampaignList:
+def get_campaigns(
+    session: Session = Depends(get_db),
+    _investigator=Depends(require_investigator),
+) -> CampaignList:
     return CampaignList(campaigns=list_campaigns(session))
 
 
 @router.get("/campaigns/{campaign_id}", response_model=CampaignDetail)
 def get_campaign_by_id(
-    campaign_id: str, session: Session = Depends(get_db)
+    campaign_id: str,
+    session: Session = Depends(get_db),
+    _investigator=Depends(require_investigator),
 ) -> CampaignDetail:
     campaign = get_campaign(session, campaign_id)
     if campaign is None:
@@ -92,7 +108,9 @@ def get_campaign_by_id(
 
 @router.get("/networks/{campaign_id}", response_model=NetworkData)
 def get_campaign_network(
-    campaign_id: str, session: Session = Depends(get_db)
+    campaign_id: str,
+    session: Session = Depends(get_db),
+    _investigator=Depends(require_investigator),
 ) -> NetworkData:
     network = get_network(session, campaign_id)
     if network is None:
@@ -101,6 +119,21 @@ def get_campaign_network(
             detail={"code": "CAMPAIGN_NOT_FOUND", "message": "Campaign does not exist"},
         )
     return network
+
+
+@router.get("/campaigns/{campaign_id}/report", response_model=InvestigatorReport)
+def get_investigator_campaign_report(
+    campaign_id: str,
+    session: Session = Depends(get_db),
+    _investigator=Depends(require_investigator),
+) -> InvestigatorReport:
+    report = build_investigator_report(session, campaign_id)
+    if report is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "CAMPAIGN_NOT_FOUND", "message": "Campaign does not exist"},
+        )
+    return report
 
 
 def _incident_detail(incident: Incident) -> IncidentDetail:
