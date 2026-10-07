@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -169,6 +170,20 @@ class InvestigatorCampaignOverview(BaseModel):
     connected_upi_ids: int
 
 
+class InvestigatorReportItem(BaseModel):
+    report_id: str
+    incident_id: str
+
+    # Citizen identity is intentionally not exposed.
+    reporter: str = "Anonymous Citizen"
+
+    description: str
+    phone: str | None = None
+    upi_id: str | None = None
+    url: str | None = None
+    created_at: datetime
+
+
 class InvestigatorReport(BaseModel):
     campaign_id: str
     campaign_name: str
@@ -183,3 +198,7 @@ class InvestigatorReport(BaseModel):
     linked_entities: list[dict[str, str]]
     evidence: list[str]
     recommended_actions: list[str]
+
+    # Reports are accessed through the campaign rather than
+    # presenting investigators with a separate global report feed.
+    reports: list[InvestigatorReportItem] = Field(default_factory=list)

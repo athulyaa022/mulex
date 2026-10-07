@@ -181,6 +181,158 @@ def get_account_network(account_id):
                     risk_result["fastest_pass_through"]
             }
         }
+def get_campaign_network(campaign_id):
+    """Return a connected Neo4j network for a fraud campaign."""
+
+    with driver.session() as session:
+
+        result = session.run(
+            """
+            MATCH (c:Campaign {id: $campaign_id})
+
+            OPTIONAL MATCH (i:Incident)-[:PART_OF]->(c)
+
+            OPTIONAL MATCH (i)-[r1:INVOLVES|USES]-(connected)
+
+            RETURN
+                c,
+                i,
+                connected,
+                collect(DISTINCT r1) AS relationships
+            """,
+            campaign_id=campaign_id,
+        )
+
+        records = list(result)
+
+        if not records:
+            return None
+
+        nodes = {}
+        edges = {}
+
+        for record in records:
+
+            campaign = record["c"]
+            incident = record["i"]
+            connected = record["connected"]
+            relationships = record["relationships"]
+
+            # Campaign node
+            if campaign is not None:
+                campaign_node_id = campaign["id"]
+
+                nodes[campaign_node_id] = {
+                    "id": campaign_node_id,
+                    "type": "CAMPAIGN",
+                    "label": campaign.get("name", campaign_node_id),
+                }
+
+            # Incident node
+            if incident is not None:
+                incident_id = incident.get("id")
+
+                if incident_id:
+                    nodes[incident_id] = {
+                        "id": incident_id,
+                        "type": "INCIDENT",
+                        "label": incident.get("severity", "Incident"),
+                    }
+
+            # Connected node
+            if connected is not None:
+
+                if "id" in connected:
+                    node_id = connected["id"]
+                else:
+                    node_id = connected.element_id
+
+                labels = list(connected.labels)
+
+                node_type = labels[0].upper() if labels else "NODE"
+
+                nodes[node_id] = {
+                    "id": node_id,
+                    "type": node_type,
+                    "label": str(
+                        connected.get("name")
+                        or connected.get("id")
+                        or node_type
+                    ),
+                }
+
+            # Relationships
+            for relationship in relationships:
+
+                if relationship is None:
+                    continue
+
+                start_node = relationship.start_node
+                end_node = relationship.end_node
+
+                start_id = (
+                    start_node["id"]
+                    if "id" in start_node
+                    else start_node.element_id
+                )
+
+                end_id = (
+                    end_node["id"]
+                    if "id" in end_node
+                    else end_node.element_id
+                )
+
+                edges[relationship.element_id] = {
+                    "id": relationship.element_id,
+                    "source": start_id,
+                    "target": end_id,
+                    "type": relationship.type,
+                }
+
+        intelligence = None
+
+        try:
+            from graph_queries import get_campaign_intelligence
+
+            intelligence = get_campaign_intelligence(campaign_id)
+        except Exception:
+            intelligence = None
+
+        if intelligence and "error" not in intelligence:
+
+            risk_score = intelligence.get("risk_score", 0)
+            risk_level = intelligence.get("risk_level", "LOW")
+
+            evidence = [
+                f"{intelligence.get('incident_count', 0)} incidents",
+                f"{intelligence.get('account_count', 0)} connected accounts",
+                f"{intelligence.get('url_count', 0)} connected URLs",
+                f"{intelligence.get('phone_count', 0)} connected phones",
+                f"{intelligence.get('upi_count', 0)} connected UPI IDs",
+            ]
+
+            statistics = {
+                "connected_accounts": intelligence.get(
+                    "account_count", 0
+                ),
+            }
+
+        else:
+            risk_score = 0
+            risk_level = "LOW"
+            evidence = []
+            statistics = {}
+
+        return {
+            "campaign_id": campaign_id,
+            "nodes": list(nodes.values()),
+            "edges": list(edges.values()),
+            "risk_score": risk_score,
+            "risk_level": risk_level,
+            "evidence": evidence,
+            "statistics": statistics,
+            "intelligence_summary": intelligence,
+        }
 
 
 # ---------------------------------------------------------

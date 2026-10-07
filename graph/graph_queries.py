@@ -233,6 +233,68 @@ def get_campaign_intelligence(campaign_id):
             "risk_level": risk_level
         }
 
+def resolve_campaign_id(campaign_id, entity_values=None):
+    """
+    Resolve a MULEX campaign to a campaign existing in Neo4j.
+
+    First tries an exact campaign ID.
+    Then tries matching extracted entity values against graph nodes.
+    """
+
+    entity_values = entity_values or []
+
+    with driver.session() as session:
+
+        # -------------------------------------------------
+        # 1. Exact campaign ID
+        # -------------------------------------------------
+
+        result = session.run(
+            """
+            MATCH (c:Campaign {id: $campaign_id})
+            RETURN c.id AS campaign_id
+            """,
+            campaign_id=campaign_id,
+        )
+
+        record = result.single()
+
+        if record:
+            return record["campaign_id"]
+
+        # -------------------------------------------------
+        # 2. Match an extracted entity
+        # -------------------------------------------------
+
+        if entity_values:
+
+            result = session.run(
+                """
+                MATCH (c:Campaign)<-[:PART_OF]-(i:Incident)
+                MATCH (i)-[]-(n)
+
+                WHERE
+                    any(
+                        value IN $entity_values
+                        WHERE
+                            toString(n.id) = value
+                            OR toString(n.value) = value
+                            OR toString(n.url) = value
+                            OR toString(n.phone) = value
+                    )
+
+                RETURN c.id AS campaign_id
+                LIMIT 1
+                """,
+                entity_values=entity_values,
+            )
+
+            record = result.single()
+
+            if record:
+                return record["campaign_id"]
+
+    return None
 
 # ---------------------------------------------------------
 # TEST
